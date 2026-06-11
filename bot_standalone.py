@@ -32,56 +32,46 @@ if not REDIS_URL or not REDIS_TOKEN:
         print("⏸️ Bot pausado — aguardando variáveis de ambiente...")
         time.sleep(30)
 
+async def _redis(method: str, path: str, body=None):
+    """Chamada base ao Upstash REST API."""
+    headers = {"Authorization": f"Bearer {REDIS_TOKEN}", "Content-Type": "application/json"}
+    url = f"{REDIS_URL}/{path}"
+    async with httpx.AsyncClient(timeout=10) as client:
+        if method == "GET":
+            r = await client.get(url, headers=headers)
+        else:
+            r = await client.post(url, headers=headers, json=body or [])
+        return r.json()
+
 async def redis_set(key: str, value, ex: int = None):
-    """Guarda valor no Redis via Upstash REST API."""
     data = json.dumps(value) if not isinstance(value, str) else value
-    headers = {"Authorization": f"Bearer {REDIS_TOKEN}"}
-    # Upstash REST: POST /set/key/value
-    cmd = [REDIS_URL, "set", key, data]
-    if ex: cmd += ["EX", str(ex)]
-    url = "/".join(str(x) for x in cmd)
-    async with httpx.AsyncClient() as client:
-        await client.post(url, headers=headers)
+    if ex:
+        await _redis("POST", f"set/{key}/{data}/ex/{ex}")
+    else:
+        await _redis("POST", f"set/{key}/{data}")
 
 async def redis_get(key: str):
-    """Lê valor do Redis via Upstash REST API."""
-    headers = {"Authorization": f"Bearer {REDIS_TOKEN}"}
-    url = f"{REDIS_URL}/get/{key}"
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, headers=headers)
-        body = r.json()
-        result = body.get("result")
-        if result is None: return None
-        try: return json.loads(result)
-        except: return result
+    r = await _redis("GET", f"get/{key}")
+    result = r.get("result")
+    if result is None: return None
+    try: return json.loads(result)
+    except: return result
 
 async def redis_lpush(key: str, value):
-    """Adiciona ao início de uma lista Redis via Upstash REST."""
     data = json.dumps(value) if not isinstance(value, str) else value
-    headers = {"Authorization": f"Bearer {REDIS_TOKEN}"}
-    url = f"{REDIS_URL}/lpush/{key}/{httpx.URL(data)}"
-    async with httpx.AsyncClient() as client:
-        await client.post(url, headers=headers)
+    await _redis("POST", f"lpush/{key}/{data}")
 
 async def redis_ltrim(key: str, start: int, stop: int):
-    """Mantém só os últimos N elementos via Upstash REST."""
-    headers = {"Authorization": f"Bearer {REDIS_TOKEN}"}
-    url = f"{REDIS_URL}/ltrim/{key}/{start}/{stop}"
-    async with httpx.AsyncClient() as client:
-        await client.post(url, headers=headers)
+    await _redis("POST", f"ltrim/{key}/{start}/{stop}")
 
 async def redis_lrange(key: str, start: int, stop: int):
-    """Lê lista do Redis via Upstash REST."""
-    headers = {"Authorization": f"Bearer {REDIS_TOKEN}"}
-    url = f"{REDIS_URL}/lrange/{key}/{start}/{stop}"
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, headers=headers)
-        items = r.json().get("result", [])
-        out = []
-        for i in items:
-            try: out.append(json.loads(i))
-            except: out.append(i)
-        return out
+    r = await _redis("GET", f"lrange/{key}/{start}/{stop}")
+    items = r.get("result", [])
+    out = []
+    for i in items:
+        try: out.append(json.loads(i))
+        except: out.append(i)
+    return out
 
 async def push_log(msg: str):
     ts  = datetime.now().strftime("%H:%M:%S")
