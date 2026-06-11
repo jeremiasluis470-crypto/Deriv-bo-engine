@@ -21,8 +21,16 @@ from collections import deque
 #  REDIS CLIENT (Upstash REST API — sem biblioteca externa)
 # ─────────────────────────────────────────────────────────────────────────────
 
-REDIS_URL   = os.environ["UPSTASH_REDIS_REST_URL"].strip()
-REDIS_TOKEN = os.environ["UPSTASH_REDIS_REST_TOKEN"].strip()
+REDIS_URL   = os.environ.get("UPSTASH_REDIS_REST_URL","").strip()
+REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN","").strip()
+
+if not REDIS_URL or not REDIS_TOKEN:
+    print("❌ ERRO: Variáveis UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN não definidas no Railway!")
+    print("👉 Vai ao Railway → Variables e adiciona as 4 variáveis de ambiente.")
+    import time
+    while True:
+        print("⏸️ Bot pausado — aguardando variáveis de ambiente...")
+        time.sleep(30)
 
 async def redis_set(key: str, value, ex: int = None):
     """Guarda valor no Redis."""
@@ -321,17 +329,36 @@ class EngineFibonacci:
         return Signal("WAIT",0.0,"FIB sem confirmacao")
 
 class EngineSmartMoney:
+    """
+    SMC refinado com dados reais de 35 trades:
+    - COM Trend (>=0.45): 86% WR — OBRIGATORIO
+    - SEM Trend: 50% WR — BLOQUEADO
+    - Stop 2 losses consecutivos — protege o lucro
+    """
+    TREND_MIN = 0.45  # threshold validado nos dados reais
+
     def __init__(self): self.smc=SmartMoneyAnalyzer(); self.trend=TrendAnalyzer()
+
     def evaluate(self, candles):
         if len(candles)<15: return Signal("WAIT",0.0,"insuficiente")
         sig=self.smc.analyze(candles)
         if sig.direction=="WAIT": return sig
+
+        # REGRA CRÍTICA: Trend obrigatório >= 0.45
         ts,tc=self.trend.analyze([c.close for c in candles])
         td="CALL" if ts=="UP" else ("PUT" if ts=="DOWN" else None)
-        if td==sig.direction:
-            return Signal(sig.direction,min(1.0,sig.confidence+tc*0.15),
-                          sig.reason+f"+Trend({tc:.2f})",tc,0,0)
-        return sig
+
+        if td is None or tc < self.TREND_MIN:
+            return Signal("WAIT",0.0,
+                          f"SMC bloqueado: sem trend ({tc:.2f}<{self.TREND_MIN}) — 50% WR sem trend")
+
+        if td != sig.direction:
+            return Signal("WAIT",0.0,
+                          f"SMC bloqueado: trend {td} contra sinal {sig.direction}")
+
+        conf = min(1.0, sig.confidence + tc*0.15)
+        return Signal(sig.direction, conf,
+                      sig.reason+f"+Trend({tc:.2f})", tc, 0, 0)
 
 ENGINES = {
     "🎯 Precisão Máxima":       EnginePredicao,
