@@ -493,7 +493,9 @@ async def bot_loop():
         cfg = await redis_get("bot:config")
         cmd = await redis_get("bot:command")
 
-        if not cfg or cmd != "START":
+        # Normaliza o comando — remove aspas extras que o Redis pode adicionar
+        cmd_clean = str(cmd).strip('"'') if cmd else ""
+        if not cfg or cmd_clean != "START":
             await push_log("⏸️ Aguardando comando START do dashboard...")
             await asyncio.sleep(5)
             continue
@@ -537,7 +539,8 @@ async def bot_loop():
             while True:
                 # Verifica se o dashboard mandou STOP
                 cmd = await redis_get("bot:command")
-                if cmd == "STOP":
+                cmd_check = str(cmd).strip('"'') if cmd else ""
+                if cmd_check == "STOP":
                     await push_log("⏹️ Comando STOP recebido — parando")
                     break
 
