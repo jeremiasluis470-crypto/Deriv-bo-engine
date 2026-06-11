@@ -54,8 +54,14 @@ async def redis_get(key: str):
     r = await _redis("GET", f"get/{key}")
     result = r.get("result")
     if result is None: return None
-    try: return json.loads(result)
-    except: return result
+    try:
+        parsed = json.loads(result)
+        # Se veio {"value": "START"} extrai só o valor
+        if isinstance(parsed, dict) and "value" in parsed:
+            return parsed["value"]
+        return parsed
+    except:
+        return result
 
 async def redis_lpush(key: str, value):
     data = json.dumps(value) if not isinstance(value, str) else value
